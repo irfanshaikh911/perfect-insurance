@@ -14,6 +14,11 @@ class Settings(BaseSettings):
 
     data_dir: Path = BACKEND_ROOT / "lic_data"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    storage_dir: Path = BACKEND_ROOT / "storage"
+    database_url: str = "sqlite:///./perfect_agent.db"
+    secret_key: str = "perfect-agent-jwt-super-secret-key-lic-workspace-2026"
+    access_token_expire_minutes: int = 60
+    refresh_token_expire_days: int = 30
 
     @property
     def plans_dir(self) -> Path:
