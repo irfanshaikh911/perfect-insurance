@@ -16,12 +16,12 @@ import type {
 import policyBook from "./policyBook.json";
 
 export const seedAgent: Agent = {
-  name: "Irfan Shaikh",
-  firstName: "Irfan",
-  code: "01234567",
-  branch: "Branch 912 — Pune City",
-  phone: "919812340000",
-  email: "irfan.agent@example.com",
+  name: "",
+  firstName: "",
+  code: "",
+  branch: "",
+  phone: "",
+  email: "",
   yearlyTarget: 2500000,
   emailReminders: true,
   whatsappReminders: true,
@@ -240,9 +240,11 @@ export const seedGlobalMessages: MessageLog[] = [];
 export function cloneSeed() {
   return {
     agent: structuredClone(seedAgent),
-    clients: structuredClone(seedClients),
-    policies: structuredClone(seedPolicies),
-    followUps: structuredClone(seedFollowUps),
+    // Clients and policies always come from the DB via API — never hardcoded.
+    // An empty array is the correct initial state for any logged-in user.
+    clients: [] as Client[],
+    policies: [] as Policy[],
+    followUps: [] as FollowUp[],
     leads: structuredClone(seedLeads),
     quotations: structuredClone(seedQuotations),
     templates: structuredClone(seedTemplates),

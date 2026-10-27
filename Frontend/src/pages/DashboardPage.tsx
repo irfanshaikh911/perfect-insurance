@@ -1,4 +1,4 @@
-import { AlertTriangle, Cake, IndianRupee, Plus, Sparkles, UserPlus, FilePlus2, Check } from "lucide-react";
+import { AlertTriangle, Cake, IndianRupee, Plus, Sparkles, UserPlus, FilePlus2, Check, Upload } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -26,11 +26,34 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">Good day, {agent.firstName}</h1>
+        <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">
+          Good day{agent.firstName ? `, ${agent.firstName}` : ""}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {agent.branch} · Agent code {agent.code}
+          {agent.branch || "Loading profile…"}{agent.code ? ` · Agent code ${agent.code}` : ""}
         </p>
       </div>
+
+      {policies.length === 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-xl border border-primary/30 bg-primary/10 p-5 shadow-xs">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-xs">
+              <Upload className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Upload Your LIC Policy Book</h2>
+              <p className="text-xs text-muted-foreground">
+                You haven't imported your agency data yet. Upload an Excel (.xlsx, .xls) or PDF policy register to instantly populate your clients, upcoming premium dues, and revival lists.
+              </p>
+            </div>
+          </div>
+          <Link to="/settings" className="shrink-0">
+            <Button size="sm" className="gap-1.5 shadow-xs">
+              <Upload className="h-4 w-4" /> Import Policy Book
+            </Button>
+          </Link>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard

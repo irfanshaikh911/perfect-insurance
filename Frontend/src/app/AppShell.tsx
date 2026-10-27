@@ -1,8 +1,9 @@
-import { Bell, LayoutDashboard, Search, Users, Calculator, Kanban, BellRing, BarChart3, Settings, Table2, BookOpen, ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Bell, LayoutDashboard, Search, Users, Calculator, Kanban, BellRing, BarChart3, Settings, Table2, BookOpen, ChevronLeft, ChevronRight, Menu, X, LogOut, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "../data/store";
 import { initials } from "../lib/format";
+import { logoutApi } from "../lib/auth";
 
 const mainNav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -60,9 +61,11 @@ function NavItem({
 }
 
 export function AppShell() {
-  const { agent, notifications, clients, leads } = useStore();
+  const { agent, notifications, clients, leads, reset } = useStore();
   const [q, setQ] = useState("");
   const [bell, setBell] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     try {
@@ -71,6 +74,21 @@ export function AppShell() {
       return false;
     }
   });
+
+  // Close profile dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [profileOpen]);
 
   const toggleSidebar = () => {
     setIsCollapsed((prev) => {
@@ -84,6 +102,11 @@ export function AppShell() {
 
   const navigate = useNavigate();
   const loc = useLocation();
+
+  // Close dropdown on navigation
+  useEffect(() => {
+    setProfileOpen(false);
+  }, [loc.pathname]);
 
   const hits = q.trim()
     ? [
@@ -112,10 +135,10 @@ export function AppShell() {
                 alt="Perfect Agent Logo"
                 className="h-11 w-11 object-contain drop-shadow-sm transition-transform group-hover/logo:scale-105"
               />
-              <div className="mt-1 flex flex-col items-center text-center select-none leading-none">
+              {/* <div className="mt-1 flex flex-col items-center text-center select-none leading-none">
                 <span className="text-[10px] font-bold tracking-tight text-sidebar-foreground">Perfect</span>
                 <span className="text-[9px] font-extrabold tracking-wider text-gold uppercase mt-0.5">Agent</span>
-              </div>
+              </div> */}
             </Link>
           </div>
         ) : (
@@ -227,6 +250,21 @@ export function AppShell() {
             <NavItem to="/admin" label="Rate & Commission Tables" icon={Table2} isCollapsed={false} />
           </div>
         </nav>
+        <div className="p-3 border-t border-sidebar-border/40">
+          <button
+            type="button"
+            onClick={async () => {
+              setMobileOpen(false);
+              reset();
+              await logoutApi();
+              navigate("/login");
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 border border-destructive/20 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </button>
+        </div>
       </aside>
 
       <div
@@ -299,24 +337,85 @@ export function AppShell() {
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => navigate("/settings")}
-            className="flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3 hover:bg-muted/60 transition-colors"
-          >
-            {agent.avatar ? (
-              <img
-                src={agent.avatar}
-                alt={agent.name}
-                className="h-8 w-8 rounded-full object-cover ring-1 ring-border/50 shrink-0"
-              />
-            ) : (
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground shrink-0">
-                {initials(agent.name)}
+          {/* Profile Dropdown */}
+          <div ref={profileRef} className="relative">
+            <button
+              type="button"
+              id="profile-menu-btn"
+              onClick={() => setProfileOpen((v) => !v)}
+              className="flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-2.5 hover:bg-muted/60 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20"
+              aria-expanded={profileOpen}
+              aria-haspopup="true"
+            >
+              {agent.avatar ? (
+                <img
+                  src={agent.avatar}
+                  alt={agent.name || "Agent"}
+                  className="h-8 w-8 rounded-full object-cover ring-1 ring-border/50 shrink-0"
+                />
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground shrink-0">
+                  {agent.name ? initials(agent.name) : "…"}
+                </span>
+              )}
+              <span className="hidden text-sm font-medium sm:block max-w-[120px] truncate">
+                {agent.name || "Agent"}
               </span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
+                  profileOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {/* Dropdown Menu */}
+            {profileOpen && (
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-border bg-card shadow-lg z-50 overflow-hidden animate-in fade-in-0 zoom-in-95">
+                {/* Agent Header */}
+                <div className="border-b border-border/70 px-4 py-3 bg-muted/20">
+                  <p className="text-sm font-semibold truncate text-foreground">{agent.name || "Agent"}</p>
+                  {agent.code && (
+                    <p className="text-xs text-muted-foreground truncate">Code: {agent.code}</p>
+                  )}
+                  {agent.branch && (
+                    <p className="text-xs text-muted-foreground truncate">Branch: {agent.branch}</p>
+                  )}
+                </div>
+
+                <div className="p-1">
+                  {/* Settings Link */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      navigate("/settings");
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/90 hover:bg-muted/70 hover:text-foreground transition-colors"
+                  >
+                    <Settings className="h-4 w-4 text-muted-foreground" />
+                    <span>Settings</span>
+                  </button>
+
+                  <div className="my-1 border-t border-border/70" />
+
+                  {/* Logout Button */}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setProfileOpen(false);
+                      reset();
+                      await logoutApi();
+                      navigate("/login");
+                    }}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </div>
             )}
-            <span className="hidden text-sm font-medium sm:block">{agent.name}</span>
-          </button>
+          </div>
         </header>
 
         <main key={loc.pathname} className="min-w-0 flex-1 px-4 pb-24 pt-6 lg:px-6 lg:pb-10">
