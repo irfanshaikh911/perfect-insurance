@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+lic_data/plans/
+lic_data/pdfs/
+*.pdf
+.DS_Store
