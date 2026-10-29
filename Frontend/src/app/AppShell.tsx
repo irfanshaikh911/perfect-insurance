@@ -61,7 +61,7 @@ function NavItem({
 }
 
 export function AppShell() {
-  const { agent, notifications, clients, leads, reset } = useStore();
+  const { agent, notifications, clients, leads, reset, refreshAgentData } = useStore();
   const [q, setQ] = useState("");
   const [bell, setBell] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -74,6 +74,13 @@ export function AppShell() {
       return false;
     }
   });
+
+  // Ensure agent records are loaded on app mount
+  useEffect(() => {
+    if (clients.length === 0) {
+      refreshAgentData();
+    }
+  }, []);
 
   // Close profile dropdown on click outside
   useEffect(() => {

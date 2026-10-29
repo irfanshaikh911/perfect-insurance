@@ -1,6 +1,6 @@
 import Papa from "papaparse";
-import { Plus, Search, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Plus, Search, Upload, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -11,19 +11,34 @@ import { useStore } from "../data/store";
 import { formatDate } from "../lib/format";
 import type { Client, Policy } from "../types/models";
 
+const PAGE_SIZE = 50;
+
 export function ClientsListPage() {
-  const { clients, policies, addClient, importClients } = useStore();
+  const { clients, policies, addClient, importClients, isLoadingData, refreshAgentData } = useStore();
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("all");
   const [sort, setSort] = useState("name");
+  const [page, setPage] = useState(1);
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
   const tags = ["High Value", "New Lead", "Lapse Risk"];
-  const nextDue = (id: string) =>
-    policies
-      .filter((p) => p.clientId === id && p.status === "Active")
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.dueDate;
+
+  // Pre-calculate policy count & next due date in O(N) instead of O(N*M)
+  const { policyCountMap, nextDueMap } = useMemo(() => {
+    const pCount: Record<string, number> = {};
+    const nDue: Record<string, string> = {};
+
+    for (const p of policies) {
+      pCount[p.clientId] = (pCount[p.clientId] || 0) + 1;
+      if (p.status === "Active") {
+        if (!nDue[p.clientId] || p.dueDate < nDue[p.clientId]) {
+          nDue[p.clientId] = p.dueDate;
+        }
+      }
+    }
+    return { policyCountMap: pCount, nextDueMap: nDue };
+  }, [policies]);
 
   const rows = useMemo(() => {
     let list = clients.filter(
@@ -33,17 +48,47 @@ export function ClientsListPage() {
     );
     list = [...list].sort((a, b) => a.name.localeCompare(b.name));
     if (sort === "due") {
-      list.sort((a, b) => (nextDue(a.id) ?? "9999").localeCompare(nextDue(b.id) ?? "9999"));
+      list.sort((a, b) => (nextDueMap[a.id] ?? "9999").localeCompare(nextDueMap[b.id] ?? "9999"));
     }
     return list;
-  }, [clients, q, tag, sort, policies]);
+  }, [clients, q, tag, sort, nextDueMap]);
+
+  // Reset page when filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [q, tag, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pagedRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">Clients</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{clients.length} clients in your book</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">Clients</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isLoadingData ? (
+              <span className="inline-flex items-center gap-1.5 text-primary">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Syncing clients from database…
+              </span>
+            ) : (
+              <span>{clients.length.toLocaleString()} clients in your book</span>
+            )}
+          </p>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          icon={<RefreshCw className={`h-3.5 w-3.5 ${isLoadingData ? "animate-spin text-primary" : ""}`} />}
+          onClick={() => refreshAgentData()}
+          disabled={isLoadingData}
+        >
+          {isLoadingData ? "Syncing…" : "Refresh"}
+        </Button>
       </div>
+
       <div className="filter-bar">
         {/* Search */}
         <div className="filter-search">
@@ -77,43 +122,99 @@ export function ClientsListPage() {
           Add Client
         </Button>
       </div>
+
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="border-b border-border text-left text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Phone</th>
-              <th className="px-4 py-3 font-medium">Policies</th>
-              <th className="px-4 py-3 font-medium">Next premium due</th>
-              <th className="px-4 py-3 font-medium">Tags</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((c) => {
-              const count = policies.filter((p) => p.clientId === c.id).length;
-              const due = nextDue(c.id);
-              return (
-                <tr key={c.id} className="hover:bg-muted/50">
-                  <td className="px-4 py-3">
-                    <Link to={`/clients/${c.id}`} className="font-medium hover:underline">
-                      {c.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 num text-muted-foreground">{c.phone || "—"}</td>
-                  <td className="px-4 py-3">{count}</td>
-                  <td className="px-4 py-3">{due ? formatDate(due) : "—"}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {c.tags.map((t) => (
-                        <Badge key={t}>{t}</Badge>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {isLoadingData && clients.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+            <RefreshCw className="h-7 w-7 animate-spin text-primary" />
+            <p className="text-sm font-medium">Fetching client book from database…</p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Name</th>
+                    <th className="px-4 py-3 font-medium">Phone</th>
+                    <th className="px-4 py-3 font-medium">Policies</th>
+                    <th className="px-4 py-3 font-medium">Next premium due</th>
+                    <th className="px-4 py-3 font-medium">Tags</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {pagedRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        {q ? "No clients match your search criteria." : "No clients found."}
+                      </td>
+                    </tr>
+                  ) : (
+                    pagedRows.map((c) => {
+                      const count = policyCountMap[c.id] || 0;
+                      const due = nextDueMap[c.id];
+                      return (
+                        <tr key={c.id} className="hover:bg-muted/50">
+                          <td className="px-4 py-3">
+                            <Link to={`/clients/${c.id}`} className="font-medium hover:underline text-foreground">
+                              {c.name}
+                            </Link>
+                          </td>
+                          <td className="px-4 py-3 num text-muted-foreground">{c.phone || "—"}</td>
+                          <td className="px-4 py-3">{count}</td>
+                          <td className="px-4 py-3">{due ? formatDate(due) : "—"}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {c.tags.map((t) => (
+                                <Badge key={t}>{t}</Badge>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground">
+                <p>
+                  Showing <span className="font-medium text-foreground">{(page - 1) * PAGE_SIZE + 1}</span> to{" "}
+                  <span className="font-medium text-foreground">
+                    {Math.min(page * PAGE_SIZE, rows.length)}
+                  </span>{" "}
+                  of <span className="font-medium text-foreground">{rows.length.toLocaleString()}</span> clients
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Previous
+                  </Button>
+                  <span className="px-2">
+                    Page {page} of {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </Card>
       <AddClientDialog
         open={addOpen}

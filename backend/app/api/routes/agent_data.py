@@ -213,7 +213,15 @@ def get_agent_clients(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Client).filter(Client.user_id == current_user.id)
+    query = db.query(
+        Client.id,
+        Client.name,
+        Client.phone,
+        Client.email,
+        Client.dob,
+        Client.address,
+        Client.status,
+    ).filter(Client.user_id == current_user.id)
 
     if q and q.strip():
         term = f"%{q.strip().lower()}%"
@@ -221,33 +229,33 @@ def get_agent_clients(
 
     clients = query.order_by(Client.name.asc()).all()
 
-    # Pre-calculate counts and premiums in memory with 1 query
-    all_policies = db.query(Policy.client_id, Policy.premium).filter(Policy.user_id == current_user.id).all()
-    pols_map = {}
-    for p_client_id, p_prem in all_policies:
-        if p_client_id not in pols_map:
-            pols_map[p_client_id] = {"count": 0, "total": 0.0}
-        pols_map[p_client_id]["count"] += 1
-        pols_map[p_client_id]["total"] += float(p_prem or 0.0)
-
-    results = []
-    for c in clients:
-        c_stats = pols_map.get(c.id, {"count": 0, "total": 0.0})
-        results.append(
-            ClientOut(
-                id=str(c.id),
-                name=c.name,
-                phone=c.phone,
-                email=c.email,
-                dob=c.dob.isoformat() if c.dob else None,
-                address=c.address,
-                status=c.status,
-                policy_count=c_stats["count"],
-                total_premium=c_stats["total"],
-            )
+    # Pre-calculate counts and premiums in memory with 1 fast group-by query
+    policy_stats = (
+        db.query(
+            Policy.client_id,
+            func.count(Policy.id).label("cnt"),
+            func.coalesce(func.sum(Policy.premium), 0.0).label("prem"),
         )
+        .filter(Policy.user_id == current_user.id)
+        .group_by(Policy.client_id)
+        .all()
+    )
+    pols_map = {row.client_id: (row.cnt, float(row.prem)) for row in policy_stats}
 
-    return results
+    return [
+        ClientOut(
+            id=str(c.id),
+            name=c.name,
+            phone=c.phone,
+            email=c.email,
+            dob=c.dob.isoformat() if c.dob else None,
+            address=c.address,
+            status=c.status,
+            policy_count=pols_map.get(c.id, (0, 0.0))[0],
+            total_premium=pols_map.get(c.id, (0, 0.0))[1],
+        )
+        for c in clients
+    ]
 
 
 @router.get("/policies", response_model=List[PolicyOut])
@@ -258,7 +266,27 @@ def get_agent_policies(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Policy).filter(Policy.user_id == current_user.id)
+    query = (
+        db.query(
+            Policy.id,
+            Policy.client_id,
+            Client.name.label("client_name"),
+            Policy.policy_number,
+            Policy.plan_code,
+            Policy.plan_name,
+            Policy.term,
+            Policy.ppt,
+            Policy.sum_assured,
+            Policy.premium,
+            Policy.mode,
+            Policy.doc,
+            Policy.fup,
+            Policy.dom,
+            Policy.status,
+        )
+        .join(Client, Policy.client_id == Client.id)
+        .filter(Policy.user_id == current_user.id)
+    )
 
     if status_filter and status_filter != "All":
         query = query.filter(Policy.status == status_filter)
@@ -266,40 +294,36 @@ def get_agent_policies(
     if mode_filter and mode_filter != "All":
         query = query.filter(Policy.mode == mode_filter)
 
-    policies = query.order_by(Policy.fup.asc().nullslast()).all()
-
-    # Join client names
-    clients_map = {c.id: c.name for c in db.query(Client).filter(Client.user_id == current_user.id).all()}
-
-    results = []
-    for p in policies:
-        c_name = clients_map.get(p.client_id, "Unknown Client")
-        if q and q.strip():
-            term = q.strip().lower()
-            if term not in c_name.lower() and term not in p.policy_number.lower() and term not in p.plan_name.lower():
-                continue
-
-        results.append(
-            PolicyOut(
-                id=str(p.id),
-                client_id=str(p.client_id),
-                client_name=c_name,
-                policy_number=p.policy_number,
-                plan_code=p.plan_code,
-                plan_name=p.plan_name,
-                term=p.term,
-                ppt=p.ppt,
-                sum_assured=p.sum_assured,
-                premium=p.premium,
-                mode=p.mode,
-                doc=p.doc.isoformat() if p.doc else None,
-                fup=p.fup.isoformat() if p.fup else None,
-                dom=p.dom.isoformat() if p.dom else None,
-                status=p.status,
-            )
+    if q and q.strip():
+        term = f"%{q.strip().lower()}%"
+        query = query.filter(
+            func.lower(Client.name).like(term)
+            | func.lower(Policy.policy_number).like(term)
+            | func.lower(Policy.plan_name).like(term)
         )
 
-    return results
+    policies = query.order_by(Policy.fup.asc().nullslast()).all()
+
+    return [
+        PolicyOut(
+            id=str(p.id),
+            client_id=str(p.client_id),
+            client_name=p.client_name or "Unknown Client",
+            policy_number=p.policy_number,
+            plan_code=p.plan_code,
+            plan_name=p.plan_name,
+            term=p.term,
+            ppt=p.ppt,
+            sum_assured=float(p.sum_assured or 0.0),
+            premium=float(p.premium or 0.0),
+            mode=p.mode,
+            doc=p.doc.isoformat() if p.doc else None,
+            fup=p.fup.isoformat() if p.fup else None,
+            dom=p.dom.isoformat() if p.dom else None,
+            status=p.status,
+        )
+        for p in policies
+    ]
 
 
 @router.get("/summary", response_model=AgentSummary)

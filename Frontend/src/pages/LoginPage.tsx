@@ -16,7 +16,7 @@ export function LoginPage() {
   const [success, setSuccess] = useState<string | null>(() => locationState?.message || null);
 
   const navigate = useNavigate();
-  const { saveAgent } = useStore();
+  const { saveAgent, refreshAgentData } = useStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +46,9 @@ export function LoginPage() {
         browserNotifications: false,
         avatar: res.user.avatar || undefined,
       });
+
+      // Immediately fetch agent's database records (clients & policies)
+      await refreshAgentData();
 
       navigate("/");
     } catch (err: any) {
